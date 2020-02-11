@@ -14,6 +14,8 @@ class Admin {
 		\add_action( 'admin_menu', array( '\Activitypub\Admin', 'admin_menu' ) );
 		\add_action( 'admin_init', array( '\Activitypub\Admin', 'register_settings' ) );
 		\add_action( 'show_user_profile', array( '\Activitypub\Admin', 'add_fediverse_profile' ) );
+		\add_action( 'personal_options_update', array( '\Activitypub\Admin', 'save_profile' ), 11 );
+		\add_action( 'edit_user_profile_update', array( '\Activitypub\Admin', 'save_profile' ), 11 );
 	}
 
 	/**
@@ -50,7 +52,7 @@ class Admin {
 	}
 
 	/**
-	 * Register PubSubHubbub settings
+	 * Register ActivityPub settings
 	 */
 	public static function register_settings() {
 		\register_setting(
@@ -106,6 +108,14 @@ class Admin {
 				'default'      => array( 'post', 'pages' ),
 			)
 		);
+		\register_setting(
+			'activitypub', 'activitypub_profile_fields', array(
+				'type'         => 'array',
+				'description'  => \esc_html__( 'You can have up to 4 items displayed as a table on your profile.', 'activitypub' ),
+				'show_in_rest' => true,
+				'default'      => array(),
+			)
+		);
 	}
 
 	public static function add_settings_help_tab() {
@@ -132,10 +142,36 @@ class Admin {
 		// todo
 	}
 
+	/**
+	 * Undocumented function
+	 *
+	 * @param [type] $user
+	 * @return void
+	 */
 	public static function add_fediverse_profile( $user ) {
-		?>
-		<h2><?php \esc_html_e( 'Fediverse', 'activitypub' ); ?></h2>
-		<?php
-		\Activitypub\get_identifier_settings( $user->ID );
+		\load_template( \dirname( __FILE__ ) . '/../templates/user-settings.php' );
+	}
+
+	/**
+	 * Save the ActivityPub specific data.
+	 *
+	 * @param int $user_id
+	 * @return void
+	 */
+	public static function save_profile( $user_id ) {
+		if ( ! current_user_can( 'edit_user', $user_id ) ) {
+			return false;
+		}
+
+		$profile_fields = array();
+
+        if ( isset( $_POST['activitypub_profile_fields'] ) ) {
+			foreach ( $_POST['activitypub_profile_fields'] as $key => $value ) {
+
+			}
+		}
+
+		echo "<pre>";
+		var_dump($_POST);
 	}
 }
