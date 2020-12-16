@@ -23,9 +23,20 @@ class Outbox {
 		\register_rest_route(
 			'activitypub/1.0', '/users/(?P<id>\d+)/outbox', array(
 				array(
-					'methods'             => \WP_REST_Server::READABLE,
-					'callback'            => array( '\Activitypub\Rest\Outbox', 'user_outbox' ),
-					'args'                => self::request_parameters(),
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => array( '\Activitypub\Rest\Outbox', 'user_outbox' ),
+					'args'     => self::request_parameters(),
+					'permission_callback' => '__return_true',
+				),
+			)
+		);
+		
+		\register_rest_route(
+			'activitypub/1.0', '/post/(?P<id>\d+)/replies', array(
+				array(
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => array( '\Activitypub\Rest\Outbox', 'post_replies' ),
+					'args'     => self::request_parameters(),
 					'permission_callback' => '__return_true',
 				),
 			)
@@ -41,9 +52,9 @@ class Outbox {
 	public static function user_outbox( $request ) {
 		$user_id = $request->get_param( 'id' );
 		$author  = \get_user_by( 'ID', $user_id );
-
+// /with_replies include comments
 		if ( ! $author ) {
-			return new \WP_Error( 'rest_invalid_param', \__( 'User not found', 'activitypub' ), array(
+			return new \WP_Error( 'rest_invalid_param', __( 'User not found', 'activitypub' ), array(
 				'status' => 404,
 				'params' => array(
 					'user_id' => \__( 'User not found', 'activitypub' ),
@@ -52,7 +63,8 @@ class Outbox {
 		}
 
 		$page = $request->get_param( 'page', 0 );
-
+		//$page = $request->get_param( 'page', true );
+		error_log('outbox');
 		/*
 		 * Action triggerd prior to the ActivityPub profile being created and sent to the client
 		 */
@@ -67,14 +79,23 @@ class Outbox {
 		$json->type = 'OrderedCollectionPage';
 		$json->partOf = \get_rest_url( null, "/activitypub/1.0/users/$user_id/outbox" ); // phpcs:ignore
 
-		$count_posts = \wp_count_posts();
-		$json->totalItems = \intval( $count_posts->publish ); // phpcs:ignore
+		$count_posts = \count_user_posts( $user_id );// get allowed post types, public_only = true
+		$json->totalItems = \intval( $count_posts ); // phpcs:ignore
 
 		$posts = \get_posts( array(
 			'posts_per_page' => 10,
 			'author' => $user_id,
 			'offset' => $page * 10,
 		) );
+		$comments = \get_comments(
+			array(
+				'number' => 10,
+				'paged' => true,
+				'user_id' => $user_id,
+				'status' => 'approved',
+				'offset' => $page * 10,
+			) 
+		);
 
 		$json->first = \add_query_arg( 'page', 0, $json->partOf ); // phpcs:ignore
 		$json->last  = \add_query_arg( 'page', ( \ceil ( $json->totalItems / 10 ) ) - 1, $json->partOf ); // phpcs:ignore
@@ -89,6 +110,12 @@ class Outbox {
 			$activitypub_activity->from_post( $activitypub_post->to_array() );
 			$json->orderedItems[] = $activitypub_activity->to_array(); // phpcs:ignore
 		}
+		foreach ( $comments as $comment ) {
+			$activitypub_comment = new \Activitypub\Model\Comment( $comment );
+			$activitypub_activity = new \Activitypub\Model\Activity( 'Create', \Activitypub\Model\Activity::TYPE_NONE );
+			$activitypub_activity->from_post( $activitypub_comment->to_array() );
+			$json->orderedItems[] = $activitypub_activity->to_array(); // phpcs:ignore
+		}
 
 		// filter output
 		$json = \apply_filters( 'activitypub_outbox_array', $json );
@@ -97,6 +124,75 @@ class Outbox {
 		 * Action triggerd after the ActivityPub profile has been created and sent to the client
 		 */
 		\do_action( 'activitypub_outbox_post' );
+
+		$response = new \WP_REST_Response( $json, 200 );
+
+		$response->header( 'Content-Type', 'application/activity+json' );
+
+		return $response;
+	}
+
+	/**
+	 * Renders the replies collection for a post
+	 *
+	 * @param  WP_REST_Request   $request
+	 * @return WP_REST_Response
+	 */
+	public static function post_replies( $request ) {
+		$post_id = $request->get_param( 'id' );
+		$comments  = \get_comments( array('post_id' =>  $post_id) );
+
+		if ( ! $comments ) {
+			return new \WP_Error( 'rest_invalid_param', __( 'No comments found', 'activitypub' ), array(
+				'status' => 404,
+				'params' => array(
+					'post_id' => \__( 'No comments found', 'activitypub' ),
+				),
+			) );
+		}
+
+		$page = $request->get_param( 'page', 0 );
+		error_log('comments');
+		/*
+		 * Action triggerd prior to the ActivityPub profile being created and sent to the client
+		 */
+		\do_action( 'activitypub_replies_pre' );
+
+		$json = new \stdClass();
+
+		$json->{'@context'} = \Activitypub\get_context();
+		$json->id = \home_url( \add_query_arg( null, null ) );
+		//$json->generator = 'http://wordpress.org/?v=' . \get_bloginfo_rss( 'version' );
+		//$json->actor = \get_author_posts_url( $user_id );
+		$json->type = 'CollectionPage';
+		
+		$json->partOf = \get_rest_url( null, "/activitypub/1.0/post/$post_id/replies" ); // phpcs:ignore
+
+		$count_comments = \get_comments_number( $post_id );// get allowed post types, public_only = true
+		$json->totalItems = \intval( $count_comments ); // phpcs:ignore
+	
+
+		$json->first = \add_query_arg( 'page', 0, $json->partOf ); // phpcs:ignore
+		$json->last  = \add_query_arg( 'page', ( \ceil ( $json->totalItems / 10 ) ) - 1, $json->partOf ); // phpcs:ignore
+
+		if ( ( \ceil ( $json->totalItems / 10 ) ) - 1 > $page ) { // phpcs:ignore
+			$json->next  = \add_query_arg( 'page', ++$page, $json->partOf ); // phpcs:ignore
+		}
+
+		foreach ( $comments as $comment ) {
+			$activitypub_comment = new \Activitypub\Model\Comment( $comment );
+			$activitypub_activity = new \Activitypub\Model\Activity( 'Create', \Activitypub\Model\Activity::TYPE_NONE );
+
+			$json->orderedItems[] = $activitypub_comment->to_array(); // phpcs:ignore
+		}
+
+		// filter output
+		$json = \apply_filters( 'activitypub_comment_array', $json );
+
+		/*
+		 * Action triggerd after the ActivityPub profile has been created and sent to the client
+		 */
+		\do_action( 'activitypub_comment_post' );
 
 		$response = new \WP_REST_Response( $json, 200 );
 

@@ -61,7 +61,12 @@ class Activity {
 	}
 
 	public function from_comment( $object ) {
-
+		$this->object = $object;
+		$this->published = $object['published'];
+		$this->actor = $object['attributedTo'];
+		$this->id = $object['id'] . '-activity';
+		$this->cc = $object['cc'];
+		$this->tag = $object['tag'];
 	}
 
 	public function to_comment() {
@@ -90,10 +95,11 @@ class Activity {
 	 * @return void
 	 */
 	public function to_json() {
-		return \wp_json_encode( $this->to_array(), \JSON_HEX_TAG | \JSON_HEX_AMP | \JSON_HEX_QUOT );
+		return \wp_json_encode( $this->to_array(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT );
 	}
 
 	public function to_simple_array() {
+		\error_log( 'to_simple_array' );
 		$activity = array(
 			'@context' => $this->context,
 			'type' => $this->type,
@@ -111,6 +117,6 @@ class Activity {
 	}
 
 	public function to_simple_json() {
-		return \wp_json_encode( $this->to_simple_array(), \JSON_HEX_TAG | \JSON_HEX_AMP | \JSON_HEX_QUOT );
+		return \wp_json_encode( $this->to_simple_array(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT );
 	}
 }

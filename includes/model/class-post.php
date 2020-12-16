@@ -28,16 +28,12 @@ class Post {
 		$this->object_type = $this->generate_object_type();
 	}
 
-	public function __call( $method, $params ) {
-		$var = \strtolower( \substr( $method, 4 ) );
+	public function get_post() {
+		return $this->post;
+	}
 
-		if ( \strncasecmp( $method, 'get', 3 ) === 0 ) {
-			return $this->$var;
-		}
-
-		if ( \strncasecmp( $method, 'set', 3 ) === 0 ) {
-			$this->$var = $params[0];
-		}
+	public function get_post_author() {
+		return $this->post->post_author;
 	}
 
 	public function to_array() {
@@ -48,23 +44,33 @@ class Post {
 			'type' => $this->object_type,
 			'published' => \date( 'Y-m-d\TH:i:s\Z', \strtotime( $post->post_date ) ),
 			'attributedTo' => \get_author_posts_url( $post->post_author ),
-			'summary' => $this->summary,
+			'summary' => $this->get_the_title(),
 			'inReplyTo' => null,
-			'content' => $this->content,
+			'content' => $this->get_the_content(),
 			'contentMap' => array(
-				\strstr( \get_locale(), '_', true ) => $this->content,
+				\strstr( \get_locale(), '_', true ) => $this->get_the_content(),
 			),
 			'to' => array( 'https://www.w3.org/ns/activitystreams#Public' ),
 			'cc' => array( 'https://www.w3.org/ns/activitystreams#Public' ),
-			'attachment' => $this->attachments,
-			'tag' => $this->tags,
+			'attachment' => $this->get_attachments(),
+			'tag' => $this->get_tags(),
+			'replies' => array( 
+				'id' => \get_rest_url(null, 'activitypub/1.0/post/') . $post->ID . '/replies',
+				'type' => 'Collection',
+				'first' => array(
+					'type' => 'CollectionPage',
+					'next' => \get_rest_url(null, 'activitypub/1.0/post/') . $post->ID . '/replies',
+					'partOf' => \get_rest_url(null, 'activitypub/1.0/post/') . $post->ID . '/replies',
+					'items' => [],
+				),
+			),
 		);
 
 		return \apply_filters( 'activitypub_post', $array );
 	}
 
 	public function to_json() {
-		return \wp_json_encode( $this->to_array(), \JSON_HEX_TAG | \JSON_HEX_AMP | \JSON_HEX_QUOT );
+		return \wp_json_encode( $this->to_array(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT );
 	}
 
 	public function generate_id() {
@@ -123,7 +129,7 @@ class Post {
 				$image = array(
 					'type' => 'Image',
 					'url' => $thumbnail[0],
-					'mediaType' => $mimetype,
+					'mediaType' => $mimetype
 				);
 				if ( $alt ) {
 					$image['name'] = $alt;
@@ -135,7 +141,7 @@ class Post {
 		return $images;
 	}
 
-	public function generate_tags() {
+	public function get_tags() {
 		$tags = array();
 
 		$post_tags = \get_the_tags( $this->post->ID );
@@ -150,6 +156,20 @@ class Post {
 			}
 		}
 
+		$mention_tags = \get_post_meta( $this->post->ID, '_mentions' );
+		if ( !empty( $mention_tags ) ) {
+			foreach ($mention_tags as $mention) {
+				if ( !empty( $mention ) ) {
+					$mention_tag = array(
+						'type' => 'Mention',
+						'href' => $mention['href'],
+						'name' => '@' . $mention['name'],
+					);
+					$tags[] = $mention_tag;
+				}
+			}
+		}
+
 		return $tags;
 	}
 
@@ -161,7 +181,7 @@ class Post {
 	 *
 	 * @return string the object-type
 	 */
-	public function generate_object_type() {
+	public function get_object_type() {
 		if ( 'wordpress-post-format' !== \get_option( 'activitypub_object_type', 'note' ) ) {
 			return \ucfirst( \get_option( 'activitypub_object_type', 'note' ) );
 		}
